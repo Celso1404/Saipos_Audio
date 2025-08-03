@@ -1,14 +1,10 @@
-# App name
+# Audio_Service - Zendesk
 
-[brief description of the app]
+Aplicativo desenvolvido para melhorar a experiência de trabalho e de contato com o cliente de nossos analistas.
 
-### The following information is displayed:
+### Próximas informações importantes
 
-* info1
-* info2
-* info3
+* Aplicativo em fase inicial
+* Para utiliza-lo, é necessário criar um server dentro da aplicação do Zendesk
 
-Please submit bug reports to [Insert Link](). Pull requests are welcome.
 
-### Screenshot(s):
-[put your screenshots down here.]
