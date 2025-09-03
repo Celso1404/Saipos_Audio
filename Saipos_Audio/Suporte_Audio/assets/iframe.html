@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AudioZendesk - Sunshine Conversation</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <h2 class="app-title">🎤 AudioZendesk - Sunshine Conversation</h2>
+
+    <div class="container">
+      <h3>🎙️ Gravação de Áudio</h3>
+      <div class="button-group">
+        <button id="startBtn" class="btn btn-primary" disabled>
+          🎤 Iniciar Gravação
+        </button>
+        <button id="stopBtn" class="btn btn-secondary" disabled>
+          ⏹️ Parar Gravação
+        </button>
+      </div>
+      
+      <audio id="audioPlayer" controls style="display:none;"></audio>
+    </div>
+
+    <div class="container">
+      <h3>📤 Envio</h3>
+      <button id="sendDirectBtn" class="btn btn-success" disabled>
+        📤 Enviar Áudio
+      </button>
+      
+      <div id="statusDiv"></div>
+    </div>
+  </div>
+
+  <script src="https://static.zdassets.com/zendesk_app_framework_sdk/2.0/zaf_sdk.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
+
