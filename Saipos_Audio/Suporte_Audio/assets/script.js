@@ -1,5 +1,3 @@
-// AudioZendesk - Sunshine Conversation Script Otimizado
-
 class AudioRecorder {
   constructor() {
     this.mediaRecorder = null;
@@ -85,25 +83,64 @@ class AudioRecorder {
     }
   }
 
+  // Função para determinar a URL base do backend baseada no protocolo da página
+  getBackendBaseUrl() {
+    // Se a página está em HTTPS
+    const protocol = window.location.protocol;
+    const isHttps = protocol === 'https:';
+    
+    if (isHttps) {
+      // Em produção ou ambiente HTTPS, usar HTTPS
+      return 'https://localhost:3000';
+    } else {
+      // Em desenvolvimento local, usar HTTP
+      return 'http://localhost:3000';
+    }
+  }
+
   async getAndSetConversationId() {
     try {
       const ticketId = await this.getTicketId();
       this.showStatus(`Ticket ID encontrado: ${ticketId}. Buscando Conversation ID...`, "info");
 
-      const response = await fetch(`http://localhost:3000/conversation-id/${ticketId}`);
+      const backendUrl = this.getBackendBaseUrl();
+      console.log(`Fazendo requisição para: ${backendUrl}/conversation-id/${ticketId}`);
+
+      const response = await fetch(`${backendUrl}/conversation-id/${ticketId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        // Timeout para corrigir bug do carregamento
+        signal: AbortSignal.timeout(30000) // 30 segundos
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
       const data = await response.json();
 
-      if (response.ok && data.success) {
+      if (data.success) {
         this.conversationId = data.conversationId;
-        this.showStatus(`✅ Conversation ID obtido: ${this.conversationId}`, "success");
+        this.showStatus(`Conversation ID obtido: ${this.conversationId}`, "success");
         this.startBtn.disabled = false; // Habilita o botão de gravação
       } else {
         throw new Error(data.error || "Falha ao obter Conversation ID");
       }
     } catch (error) {
       console.error("Erro ao obter e definir Conversation ID:", error);
-      this.showStatus(`❌ Erro ao obter Conversation ID: ${error.message}. O envio de áudio está desabilitado.`, "error");
-      this.startBtn.disabled = true; // Mantém desabilitado se não conseguir o ID
+      
+      let errorMessage = ` Erro ao obter Conversation ID: ${error.message}`;
+      
+      if (error.name === 'TimeoutError') {
+        errorMessage = " Timeout: O servidor não respondeu em 30 segundos.";
+      } else if (error.message.includes('Failed to fetch')) {
+        errorMessage = "Erro de conexão: Não foi possível conectar ao backend.";
+      }
+      
+      this.showStatus(`${errorMessage} O envio de áudio está desabilitado.`, "error");
+      this.startBtn.disabled = true; 
     }
   }
 
@@ -147,7 +184,7 @@ class AudioRecorder {
       this.mediaRecorder.start(1000); 
       
       this.updateUIForRecording(true);
-      this.showStatus("🔴 Gravação iniciada... Fale agora!", "info");
+      this.showStatus("Gravação iniciada... Fale agora!", "info");
 
     } catch (error) {
       console.error("Erro ao acessar microfone:", error);
@@ -189,7 +226,7 @@ class AudioRecorder {
     this.sendDirectBtn.disabled = false; // Habilita o botão de envio após a gravação
     
     const duration = this.recordedBlob.size > 1000 ? "Gravação concluída!" : "Gravação muito curta!";
-    this.showStatus(`✅ ${duration} Pronto para enviar.`, "success");
+    this.showStatus(`${duration} Pronto para enviar.`, "success");
   }
 
   updateUIForRecording(isRecording) {
@@ -231,24 +268,40 @@ class AudioRecorder {
       formData.append("audio", this.recordedBlob, "gravacao.webm");
       formData.append("ticketId", await this.getTicketId()); // Envia o ticketId para o backend
 
-      const response = await fetch("http://localhost:3000/upload-and-send", {
+      const backendUrl = this.getBackendBaseUrl();
+      console.log(`Enviando áudio para: ${backendUrl}/upload-and-send`);
+
+      const response = await fetch(`${backendUrl}/upload-and-send`, {
         method: "POST",
         body: formData,
+        signal: AbortSignal.timeout(60000) // 60 segundos para upload
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
 
       const data = await response.json();
 
-      if (response.ok) {
-        this.showStatus("✅ Áudio enviado com sucesso para a conversa!", "success");
+      if (data.success) {
+        this.showStatus("Áudio enviado com sucesso para a conversa!", "success");
         this.resetAfterSend();
       } else {
-        console.error("Erro do servidor:", data);
-        this.showStatus(`❌ Erro: ${data.error || response.statusText}`, "error");
+        throw new Error(data.error || "Erro desconhecido do servidor");
       }
 
     } catch (error) {
       console.error("Erro ao enviar áudio:", error);
-      this.showStatus(`❌ Erro ao enviar áudio: ${error.message}`, "error");
+      
+      let errorMessage = `Erro ao enviar áudio: ${error.message}`;
+      
+      if (error.name === 'TimeoutError') {
+        errorMessage = "Timeout: O upload demorou mais de 60 segundos. Tente novamente.";
+      } else if (error.message.includes('Failed to fetch')) {
+        errorMessage = "Erro de conexão: Não foi possível conectar ao backend durante o upload.";
+      }
+      
+      this.showStatus(errorMessage, "error");
     } finally {
       this.sendDirectBtn.disabled = false;
       this.sendDirectBtn.classList.remove("loading");
@@ -270,5 +323,3 @@ class AudioRecorder {
 document.addEventListener("DOMContentLoaded", () => {
   new AudioRecorder();
 });
-
-
