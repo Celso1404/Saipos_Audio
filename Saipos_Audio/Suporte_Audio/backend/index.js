@@ -27,17 +27,12 @@ const SUNSHINE_BASE_URL = "https://api.smooch.io";
 
 // Configuração SSL/TLS para resolver problemas de handshake
 const httpsAgent = new https.Agent({
-  secureProtocol: 'TLSv1_2_method', // Força TLS 1.2
+  secureProtocol: 'TLSv1_2_method', 
   ciphers: 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384',
   honorCipherOrder: true,
   secureOptions: constants.SSL_OP_NO_SSLv2 | constants.SSL_OP_NO_SSLv3,
   rejectUnauthorized: true
 });
-
-// Criar pasta de uploads se não existir
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
-}
 
 // Configuração do multer
 const storage = multer.diskStorage({
@@ -46,14 +41,62 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, `audio-${uniqueSuffix}.ogg`);
+    cb(null, `audio-${uniqueSuffix}.webm`); // Mantém WebM para receber do frontend
   },
 });
-const upload = multer({ storage });
+const upload = multer({ 
+  storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, 
+  },
+  fileFilter: (req, file, cb) => {
+    // Aceitar apenas arquivos de áudio
+    if (file.mimetype.startsWith('audio/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Apenas arquivos de áudio são permitidos'), false);
+    }
+  }
+});
 
-app.use(cors());
+// Configuração CORS
+app.use(cors({
+  origin: function(origin, callback) {
+    // Permitir requisições sem origin
+    if (!origin) return callback(null, true);
+    
+    // Permitir qualquer subdomínio do Zendesk
+    if (origin.includes('.zendesk.com')) {
+      return callback(null, true);
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
+
 app.use(express.json());
 app.use("/uploads", express.static(uploadDir));
+
+// Middleware para logging de requisições
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  if (req.body && Object.keys(req.body).length > 0) {
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+  }
+  next();
+});
+
+// Middleware para tratamento de erros
+app.use((error, req, res, next) => {
+  console.error('Erro no middleware:', error);
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'Arquivo muito grande. Limite: 10MB' });
+    }
+  }
+  res.status(500).json({ error: 'Erro interno do servidor', details: error.message });
+});
 
 // Função para criar credenciais Basic Auth para Sunshine Conversations
 function createSunshineAuth() {
@@ -67,7 +110,7 @@ function createZendeskAuth() {
   return `Basic ${credentials}`;
 }
 
-// Função para buscar conversation_id via API Audits
+// Buscar conversation_id via API Audits
 async function getConversationIdFromTicket(ticketId) {
   try {
     console.log(`Buscando audits para ticket ${ticketId}...`);
@@ -79,7 +122,7 @@ async function getConversationIdFromTicket(ticketId) {
           Authorization: createZendeskAuth(),
           "Content-Type": "application/json",
         },
-        agent: httpsAgent // Usar o agente HTTPS configurado
+        agent: httpsAgent 
       }
     );
 
@@ -110,7 +153,6 @@ async function getConversationIdFromTicket(ticketId) {
             return event.value.conversation_id;
           }
           
-          // Verificar se há conversation_id aninhado em outros objetos dentro de value
           if (event.value.initiator && event.value.initiator.conversation_id) {
             console.log(`Conversation ID encontrado em event.value.initiator: ${event.value.initiator.conversation_id}`);
             return event.value.initiator.conversation_id;
@@ -129,21 +171,51 @@ async function getConversationIdFromTicket(ticketId) {
 
 // Rota principal
 app.get("/", (req, res) => {
-  res.send("Servidor rodando com Sunshine Conversation API e integração Audits.");
+  res.json({
+    status: "online",
+    message: "Servidor rodando com Sunshine Conversation API e integração Audits.",
+    timestamp: new Date().toISOString(),
+    endpoints: [
+      "GET /conversation-id/:ticketId",
+      "POST /upload-and-send",
+      "POST /upload",
+      "POST /send-audio"
+    ]
+  });
+});
+
+app.get("/health", (req, res) => {
+  res.json({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage()
+  });
 });
 
 // Rota para buscar conversation_id de um ticket
 app.get("/conversation-id/:ticketId", async (req, res) => {
   const { ticketId } = req.params;
 
+  if (!ticketId || isNaN(ticketId)) {
+    return res.status(400).json({ 
+      error: "ticketId inválido", 
+      details: "ticketId deve ser um número válido" 
+    });
+  }
+
   try {
+    console.log(`Requisição para obter conversation_id do ticket ${ticketId}`);
     const conversationId = await getConversationIdFromTicket(ticketId);
+    
+    console.log(`Conversation ID obtido com sucesso: ${conversationId}`);
     res.json({ 
       success: true, 
-      ticketId, 
+      ticketId: parseInt(ticketId), 
       conversationId 
     });
   } catch (error) {
+    console.error(`Erro ao obter conversation_id para ticket ${ticketId}:`, error.message);
     res.status(500).json({ 
       error: "Falha ao obter conversation_id", 
       details: error.message 
@@ -151,31 +223,36 @@ app.get("/conversation-id/:ticketId", async (req, res) => {
   }
 });
 
-// Upload do áudio e envio via Sunshine Conversation (versão com SSL corrigido)
+// Upload do áudio e envio via Sunshine Conversation (versão com timeout e melhor tratamento de erros)
 app.post("/upload-and-send", upload.single("audio"), async (req, res) => {
+  console.log(`Iniciando processo de upload e envio de áudio`);
+  
   if (!req.file) {
+    console.log(`Nenhum arquivo enviado`);
     return res.status(400).json({ error: "Nenhum arquivo enviado." });
   }
 
   const { ticketId } = req.body;
 
-  if (!ticketId) {
-    return res.status(400).json({ error: "ticketId é obrigatório." });
+  if (!ticketId || isNaN(ticketId)) {
+    console.log(`ticketId inválido: ${ticketId}`);
+    return res.status(400).json({ error: "ticketId é obrigatório e deve ser um número válido." });
   }
 
+  console.log(`Arquivo recebido: ${req.file.filename} (${req.file.size} bytes)`);
+  console.log(`Tipo MIME: ${req.file.mimetype}`);
+
   try {
-    // Passo 1: Obter conversation_id via API Audits
+    // Obter conversation_id via Audits
     console.log(`Buscando conversation_id para ticket ${ticketId}...`);
     const conversationId = await getConversationIdFromTicket(ticketId);
     console.log(`Conversation ID encontrado: ${conversationId}`);
 
-    // Passo 2: Upload do anexo para Sunshine Conversation (com SSL corrigido)
+    // Upload do anexo para Sunco
     const formData = new FormData();
     formData.append('source', fs.createReadStream(req.file.path));
 
-    console.log(`📤 Fazendo upload do arquivo: ${req.file.filename}`);
-    console.log(`📊 Tamanho do arquivo: ${req.file.size} bytes`);
-    console.log(`🎵 Tipo MIME: ${req.file.mimetype}`);
+    console.log(`Fazendo upload do arquivo para Sunshine Conversations...`);
 
     const uploadResponse = await fetch(
       `${SUNSHINE_BASE_URL}/v2/apps/${APP_ID}/attachments?access=public&for=message&conversationId=${conversationId}`,
@@ -186,16 +263,16 @@ app.post("/upload-and-send", upload.single("audio"), async (req, res) => {
           ...formData.getHeaders(),
         },
         body: formData,
-        agent: httpsAgent // Usar o agente HTTPS configurado
+        agent: httpsAgent 
       }
     );
 
     console.log(`Status do upload: ${uploadResponse.status}`);
     const responseText = await uploadResponse.text();
-    console.log(`Corpo da resposta do upload: ${responseText}`);
+    console.log(`Resposta do upload: ${responseText}`);
 
     if (!uploadResponse.ok) {
-      console.error("Erro no upload do anexo:", responseText);
+      console.error(`Erro no upload do anexo: ${responseText}`);
       return res.status(uploadResponse.status).json({ 
         error: "Falha no upload do anexo", 
         details: responseText 
@@ -204,8 +281,10 @@ app.post("/upload-and-send", upload.single("audio"), async (req, res) => {
 
     const uploadData = JSON.parse(responseText);
     const mediaUrl = uploadData.attachment.mediaUrl;
+    console.log(`Media URL gerada: ${mediaUrl}`);
 
     // Passo 3: Enviar mensagem de áudio
+    console.log(`Enviando mensagem com áudio...`);
     const messageResponse = await fetch(
       `${SUNSHINE_BASE_URL}/v2/apps/${APP_ID}/conversations/${conversationId}/messages`,
       {
@@ -223,13 +302,13 @@ app.post("/upload-and-send", upload.single("audio"), async (req, res) => {
             mediaUrl: mediaUrl
           }
         }),
-        agent: httpsAgent // Usar o agente HTTPS configurado
+        agent: httpsAgent 
       }
     );
 
     if (!messageResponse.ok) {
       const errorData = await messageResponse.text();
-      console.error("Erro no envio da mensagem:", errorData);
+      console.error(`Erro no envio da mensagem: ${errorData}`);
       return res.status(messageResponse.status).json({ 
         error: "Falha no envio da mensagem", 
         details: errorData 
@@ -237,23 +316,36 @@ app.post("/upload-and-send", upload.single("audio"), async (req, res) => {
     }
 
     const messageData = await messageResponse.json();
+    console.log(`Mensagem enviada com sucesso!`);
 
     // Limpar arquivo local após envio bem-sucedido
-    fs.unlinkSync(req.file.path);
+    console.log(`Limpando arquivo temporário: ${req.file.filename}`);
+    if (fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
 
     res.json({
       success: true,
       message: "Áudio enviado com sucesso!",
       data: {
-        ticketId,
+        ticketId: parseInt(ticketId),
         conversationId,
+        filename: req.file.filename,
+        fileSize: req.file.size,
         attachment: uploadData.attachment,
         message: messageData.message
       }
     });
 
   } catch (error) {
-    console.error("Erro geral:", error);
+    console.error(`Erro geral no processo:`, error);
+    
+    // Limpar arquivo em caso de erro
+    if (req.file && fs.existsSync(req.file.path)) {
+      console.log(`Limpando arquivo após erro: ${req.file.filename}`);
+      fs.unlinkSync(req.file.path);
+    }
+    
     res.status(500).json({ 
       error: "Falha interna do servidor", 
       details: error.message 
@@ -268,7 +360,12 @@ app.post("/upload", upload.single("audio"), (req, res) => {
   }
 
   const fileUrl = `http://localhost:${PORT}/uploads/${req.file.filename}`;
-  return res.json({ downloadUrl: fileUrl });
+  return res.json({ 
+    success: true,
+    downloadUrl: fileUrl,
+    filename: req.file.filename,
+    size: req.file.size
+  });
 });
 
 // Rota para enviar áudio já hospedado via Sunshine Conversation
@@ -320,7 +417,7 @@ app.post("/send-audio", async (req, res) => {
       success: true,
       message: "Áudio enviado com sucesso!",
       data: {
-        ticketId,
+        ticketId: parseInt(ticketId),
         conversationId,
         message: data.message
       }
@@ -337,10 +434,9 @@ app.post("/send-audio", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
-  console.log(`Configurado para usar Sunshine Conversation API`);
-  console.log(`Sunshine Base URL: ${SUNSHINE_BASE_URL}`);
-  console.log(`Zendesk Base URL: ${ZENDESK_BASE_URL}`);
-  console.log(`App ID: ${APP_ID}`);
-  console.log("IMPORTANTE: Configure ZENDESK_API_USER e ZENDESK_API_TOKEN para usar a API Audits");
-  console.log("SSL/TLS: Configurado para TLS 1.2 com ciphers seguros");
+  console.log(`Configurado para usar Saipos Audio, seguem os dados: 
+    \nSunshine Base URL: ${SUNSHINE_BASE_URL} 
+    \nZendesk Base URL: ${ZENDESK_BASE_URL}
+    \nApp ID: ${APP_ID}
+    \nPasta de uploads: ${uploadDir}`);
 });
