@@ -1,0 +1,35 @@
+{
+  "name": "audiozendesk-sunshine-backend",
+  "version": "2.0.0",
+  "description": "Backend do aplicativo Zendesk para gravação e envio de áudio via Sunshine Conversations",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "zendesk",
+    "sunshine-conversations",
+    "audio",
+    "recording",
+    "chat"
+  ],
+  "author": "Saipos",
+  "license": "MIT",
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "fluent-ffmpeg": "^2.1.3",
+    "form-data": "^4.0.0",
+    "multer": "^1.4.5-lts.1",
+    "node-fetch": "^2.6.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
